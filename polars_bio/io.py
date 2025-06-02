@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 
 from polars_bio.polars_bio import (
     InputFormat,
+    PyObjectStorageOptions,
     ReadOptions,
     VcfReadOptions,
     py_describe_vcf,
@@ -66,6 +67,11 @@ def read_vcf(
     thread_num: int = 1,
     chunk_size: int = 8,
     concurrent_fetches: int = 1,
+    allow_anonymous: bool = False,
+    enable_request_payer: bool = False,
+    max_retries: int = 5,
+    timeout: int = 300,
+    compression_type: str = "auto",
     streaming: bool = False,
 ) -> Union[pl.LazyFrame, pl.DataFrame]:
     """
@@ -77,16 +83,30 @@ def read_vcf(
         thread_num: The number of threads to use for reading the VCF file. Used **only** for parallel decompression of BGZF blocks. Works only for **local** files.
         chunk_size: The size in MB of a chunk when reading from an object store. The default is 8 MB. For large scale operations, it is recommended to increase this value to 64.
         concurrent_fetches: The number of concurrent fetches when reading from an object store. The default is 1. For large scale operations, it is recommended to increase this value to 8 or even more.
+        allow_anonymous: Whether to allow anonymous access to object storage.
+        enable_request_payer: Whether to enable request payer for object storage. This is useful for reading files from AWS S3 buckets that require request payer.
+        max_retries:  The maximum number of retries for reading the file from object storage.
+        timeout: The timeout in seconds for reading the file from object storage.
+        compression_type: The compression type of the VCF file. If not specified, it will be detected automatically. For presigned URLs, you need to specify the compression type explicitly, e.g. `compression="bgz"`.
         streaming: Whether to read the VCF file in streaming mode.
 
     !!! note
         VCF reader uses **1-based** coordinate system for the `start` and `end` columns.
     """
+    object_storage_options = PyObjectStorageOptions(
+        allow_anonymous=allow_anonymous,
+        enable_request_payer=enable_request_payer,
+        chunk_size=chunk_size,
+        concurrent_fetches=concurrent_fetches,
+        max_retries=max_retries,
+        timeout=timeout,
+        compression_type=compression_type,
+    )
+
     vcf_read_options = VcfReadOptions(
         info_fields=_cleanse_infos(info_fields),
         thread_num=thread_num,
-        chunk_size=chunk_size,
-        concurrent_fetches=concurrent_fetches,
+        object_storage_options=object_storage_options,
     )
     read_options = ReadOptions(vcf_read_options=vcf_read_options)
     if streaming:
@@ -210,18 +230,26 @@ def read_table(path: str, schema: Dict = None, **kwargs) -> pl.LazyFrame:
     return df
 
 
-def describe_vcf(path: str) -> pl.DataFrame:
+def describe_vcf(
+    path: str,
+    allow_anonymous: bool = False,
+    enable_request_payer: bool = False,
+    compression_type: str = "auto",
+) -> pl.DataFrame:
     """
     Describe VCF INFO schema.
 
     Parameters:
         path: The path to the VCF file.
+        allow_anonymous: Whether to allow anonymous access to object storage (GCS and S3 supported).
+        enable_request_payer: Whether to enable request payer for object storage. This is useful for reading files from AWS S3 buckets that require request payer.
+        compression_type: The compression type of the VCF file. If not specified, it will be detected automatically. For presigned URLs, you need to specify the compression type explicitly, e.g. `compression="bgz"`.
 
     !!! Example
         ```python
         import polars_bio as pb
         vcf_1 = "gs://gcp-public-data--gnomad/release/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz"
-        pb.describe_vcf(vcf_1).sort("name").limit(5)
+        pb.describe_vcf(vcf_1, allow_anonymous=True).sort("name").limit(5)
         ```
 
         ```shell
@@ -241,7 +269,16 @@ def describe_vcf(path: str) -> pl.DataFrame:
 
         ```
     """
-    return py_describe_vcf(ctx, path).to_polars()
+    object_storage_options = PyObjectStorageOptions(
+        allow_anonymous=allow_anonymous,
+        enable_request_payer=enable_request_payer,
+        chunk_size=8,
+        concurrent_fetches=1,
+        max_retries=1,
+        timeout=10,
+        compression_type=compression_type,
+    )
+    return py_describe_vcf(ctx, path, object_storage_options).to_polars()
 
 
 def register_vcf(
@@ -251,6 +288,11 @@ def register_vcf(
     thread_num: int = 1,
     chunk_size: int = 64,
     concurrent_fetches: int = 8,
+    allow_anonymous: bool = False,
+    max_retries: int = 5,
+    timeout: int = 300,
+    enable_request_payer: bool = False,
+    compression_type: str = "auto",
 ) -> None:
     """
     Register a VCF file as a Datafusion table.
@@ -262,7 +304,11 @@ def register_vcf(
         thread_num: The number of threads to use for reading the VCF file. Used **only** for parallel decompression of BGZF blocks. Works only for **local** files.
         chunk_size: The size in MB of a chunk when reading from an object store. Default settings are optimized for large scale operations. For small scale (interactive) operations, it is recommended to decrease this value to **8-16**.
         concurrent_fetches: The number of concurrent fetches when reading from an object store. Default settings are optimized for large scale operations. For small scale (interactive) operations, it is recommended to decrease this value to **1-2**.
-
+        allow_anonymous: Whether to allow anonymous access to object storage.
+        enable_request_payer: Whether to enable request payer for object storage. This is useful for reading files from AWS S3 buckets that require request payer.
+        compression_type: The compression type of the VCF file. If not specified, it will be detected automatically. For presigned URLs, you need to specify the compression type explicitly, e.g. `compression="bgz"`.
+        max_retries:  The maximum number of retries for reading the file from object storage.
+        timeout: The timeout in seconds for reading the file from object storage.
     !!! note
         VCF reader uses **1-based** coordinate system for the `start` and `end` columns.
 
@@ -278,11 +324,20 @@ def register_vcf(
         `chunk_size` and `concurrent_fetches` can be adjusted according to the network bandwidth and the size of the VCF file. As a rule of thumb for large scale operations (reading a whole VCF), it is recommended to the default values.
     """
 
+    object_storage_options = PyObjectStorageOptions(
+        allow_anonymous=allow_anonymous,
+        enable_request_payer=enable_request_payer,
+        chunk_size=chunk_size,
+        concurrent_fetches=concurrent_fetches,
+        max_retries=max_retries,
+        timeout=timeout,
+        compression_type=compression_type,
+    )
+
     vcf_read_options = VcfReadOptions(
         info_fields=_cleanse_infos(info_fields),
         thread_num=thread_num,
-        chunk_size=chunk_size,
-        concurrent_fetches=concurrent_fetches,
+        object_storage_options=object_storage_options,
     )
     read_options = ReadOptions(vcf_read_options=vcf_read_options)
     py_register_table(ctx, path, name, InputFormat.Vcf, read_options)

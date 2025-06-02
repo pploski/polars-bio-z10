@@ -1,6 +1,6 @@
 [package]
 name = "polars_bio"
-version = "0.8.3"
+version = "0.9.0"
 edition = "2021"
 
 [lib]
@@ -36,10 +36,10 @@ polars-python = { git = "https://github.com/mwiewior/polars.git" , rev = "9d4fca
 
 #exon ="0.32.4"
 exon = { git = "https://github.com/mwiewior/exon.git", rev="d134d923e6c592a9972d93215a12c759c70a7ed5"}
-datafusion-vcf = { git = "https://github.com/biodatageeks/datafusion-bio-formats.git/", rev = "cc38b4ac3fe2d252245200422930fa879e92b92d"}
+datafusion-bio-format-vcf = { git =  "https://github.com/biodatageeks/datafusion-bio-formats.git", rev = "efbf9d2d0c75e8f8f36a152a5f9a48a5095f7421"}
+datafusion-bio-format-core = { git = "https://github.com/biodatageeks/datafusion-bio-formats.git", rev = "efbf9d2d0c75e8f8f36a152a5f9a48a5095f7421"}
 async-trait = "0.1.86"
 futures = "0.3.31"
 coitrees = "0.4.0"
 fnv = "1.0.7"
-async-stream = "0.3.6"
 rand = "0.8.5"

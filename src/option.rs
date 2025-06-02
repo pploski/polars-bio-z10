@@ -1,5 +1,6 @@
 use std::fmt;
 
+use datafusion_bio_format_core::object_storage::{CompressionType, ObjectStorageOptions};
 use pyo3::{pyclass, pymethods};
 
 #[pyclass(name = "RangeOptions")]
@@ -149,6 +150,64 @@ impl ReadOptions {
     }
 }
 
+#[pyclass(name = "PyObjectStorageOptions")]
+#[derive(Clone, Debug)]
+pub struct PyObjectStorageOptions {
+    #[pyo3(get, set)]
+    pub chunk_size: Option<usize>,
+    #[pyo3(get, set)]
+    pub concurrent_fetches: Option<usize>,
+    #[pyo3(get, set)]
+    pub allow_anonymous: bool,
+    #[pyo3(get, set)]
+    pub enable_request_payer: bool,
+    #[pyo3(get, set)]
+    pub max_retries: Option<usize>,
+    #[pyo3(get, set)]
+    pub timeout: Option<usize>,
+    #[pyo3(get, set)]
+    pub compression_type: String,
+}
+
+#[pymethods]
+impl PyObjectStorageOptions {
+    #[new]
+    #[pyo3(signature = (allow_anonymous, enable_request_payer, compression_type, chunk_size=None, concurrent_fetches=None, max_retries=None, timeout=None, ))]
+    pub fn new(
+        allow_anonymous: bool,
+        enable_request_payer: bool,
+        compression_type: String,
+        chunk_size: Option<usize>,
+        concurrent_fetches: Option<usize>,
+        max_retries: Option<usize>,
+        timeout: Option<usize>,
+    ) -> Self {
+        PyObjectStorageOptions {
+            allow_anonymous,
+            enable_request_payer,
+            compression_type,
+            chunk_size,
+            concurrent_fetches,
+            max_retries,
+            timeout,
+        }
+    }
+}
+
+pub fn pyobject_storage_options_to_object_storage_options(
+    options: Option<PyObjectStorageOptions>,
+) -> Option<ObjectStorageOptions> {
+    options.map(|opts| ObjectStorageOptions {
+        chunk_size: opts.chunk_size,
+        concurrent_fetches: opts.concurrent_fetches,
+        allow_anonymous: opts.allow_anonymous,
+        enable_request_payer: opts.enable_request_payer,
+        max_retries: opts.max_retries,
+        timeout: opts.timeout,
+        compression_type: Some(CompressionType::from_string(opts.compression_type)),
+    })
+}
+
 #[pyclass(name = "VcfReadOptions")]
 #[derive(Clone, Debug)]
 pub struct VcfReadOptions {
@@ -158,27 +217,26 @@ pub struct VcfReadOptions {
     pub format_fields: Option<Vec<String>>,
     #[pyo3(get, set)]
     pub thread_num: Option<usize>,
-    pub chunk_size: Option<usize>,
-    pub concurrent_fetches: Option<usize>,
+    pub object_storage_options: Option<ObjectStorageOptions>,
 }
 
 #[pymethods]
 impl VcfReadOptions {
     #[new]
-    #[pyo3(signature = (info_fields=None, format_fields=None, thread_num=None, chunk_size=None, concurrent_fetches=None))]
+    #[pyo3(signature = (info_fields=None, format_fields=None, thread_num=None, object_storage_options=None))]
     pub fn new(
         info_fields: Option<Vec<String>>,
         format_fields: Option<Vec<String>>,
         thread_num: Option<usize>,
-        chunk_size: Option<usize>,
-        concurrent_fetches: Option<usize>,
+        object_storage_options: Option<PyObjectStorageOptions>,
     ) -> Self {
         VcfReadOptions {
             info_fields,
             format_fields,
             thread_num,
-            chunk_size,
-            concurrent_fetches,
+            object_storage_options: pyobject_storage_options_to_object_storage_options(
+                object_storage_options,
+            ),
         }
     }
     #[staticmethod]
@@ -187,8 +245,15 @@ impl VcfReadOptions {
             info_fields: None,
             format_fields: None,
             thread_num: Some(1),
-            chunk_size: Some(64),
-            concurrent_fetches: Some(8),
+            object_storage_options: Some(ObjectStorageOptions {
+                chunk_size: Some(1024 * 1024), // 1MB
+                concurrent_fetches: Some(4),
+                allow_anonymous: false,
+                enable_request_payer: false,
+                max_retries: Some(5),
+                timeout: Some(300), // 300 seconds
+                compression_type: Some(CompressionType::AUTO),
+            }),
         }
     }
 }
