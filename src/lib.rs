@@ -1,4 +1,5 @@
 mod context;
+mod gc_content;
 mod operation;
 mod option;
 mod query;
