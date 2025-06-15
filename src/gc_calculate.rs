@@ -1,36 +1,61 @@
 use std::sync::Arc;
-use std::thread::spawn;
+use arrow_array::{Array, StringArray};
+use arrow_schema::DataType;
+use datafusion::common::{DataFusionError, Result, ScalarValue};
+use datafusion::logical_expr::{create_udf, ColumnarValue, ScalarUDF, Volatility};
 
-use datafusion::arrow::datatypes::DataType;
-use datafusion::execution::context::SessionContext;
-use datafusion::physical_plan::functions::{make_scalar_function, ReturnTypeFunction, Volatility};
-use datafusion::scalar::ScalarValue;
-use exon::ExonSession;
+pub fn create_gc_calculate_udf() -> ScalarUDF {
+    let func = |args: &[ColumnarValue]| -> Result<ColumnarValue> {
+        let array = match &args[0] {
+            ColumnarValue::Array(arr) => arr
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| DataFusionError::Execution("Expected StringArray".to_string()))?,
+            _ => return Err(DataFusionError::Execution("Expected array input".to_string())),
+        };
 
-fn compute_gc_content(seq: &str) -> f64 {
-    let gc = seq.chars().filter(|c| *c == 'G' || *c == 'C').count();
-    gc as f64 / seq.len().max(1) as f64
-}
+        let mut output = Vec::with_capacity(array.len());
 
-pub fn register_gc_content_udf(ctx: &ExonSession) {
-    let gc_func = make_scalar_function(|args: &[ScalarValue]| {
-        if let ScalarValue::Utf8(Some(seq)) = &args[0] {
-            let gc = compute_gc_content(seq);
-            Ok(ScalarValue::Float64(Some(gc)))
-        } else {
-            Ok(ScalarValue::Float64(None))
+        for i in 0..array.len() {
+            if array.is_null(i) {
+                output.push(ScalarValue::Float64(None));
+                continue;
+            }
+
+            let bytes = array.value(i).as_bytes();
+            let (mut total, mut gc) = (0, 0);
+            for &b in bytes {
+                if !b.is_ascii_whitespace() {
+                    total += 1;
+                    if matches!(b, b'G' | b'g' | b'C' | b'c') {
+                        gc += 1;
+                    }
+                }
+            }
+
+            let gc_percent = if total > 0 {
+                (gc as f64) / (total as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            output.push(ScalarValue::Float64(Some(gc_percent)));
         }
-    });
 
-    let return_type: ReturnTypeFunction = Arc::new(|_| Ok(Arc::new(DataType::Float64)));
+        Ok(ColumnarValue::Array(ScalarValue::iter_to_array(output)?))
+    };
 
-    let udf = datafusion::physical_plan::functions::create_udf(
-        "gc_content",
+    create_udf(
+        "my_gc_calculate",
         vec![DataType::Utf8],
-        Arc::new(DataType::Float64),
+        DataType::Float64,
         Volatility::Immutable,
-        gc_func,
-    );
-
-    ctx.session.register_udf(udf);
+        Arc::new(func),
+    )
 }
+
+
+
+
+
+

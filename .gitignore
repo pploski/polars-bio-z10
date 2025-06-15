@@ -17,3 +17,5 @@ benchmark/src/results/overlap
 mprofile*dat
 *csv
 it/data/polars-bio-it.json
+
+*.fastq
